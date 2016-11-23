@@ -71,24 +71,25 @@
 //  2:  reserved
 //  1:  reserved
 //  0:  reserved
-// Byte 19 - 23 are reserved
+// Bytes 19 - 23 are reserved
 
-// The first 256 bytes of the NVRAM are used to store settings 
-// during power outage. The map of this memory spoace follows:
+// The first 512 bytes of the NVRAM are used to store settings 
+// during power outage. The map of this memory space follows:
 
-// 0x00      : memory check byte 0: 0x00;
-// 0x01      : memory check byte 1: 0xFF;
-// 0x02      : memory check byte 2: 0x55;
-// 0x03      : memory check byte 3: 0xAA;
-// 0x04-0x06 : event address
-// 0x07-0x08 : LCD brightness
-// 0x09-0x0A : LCD contrast
+// 0x000       : memory check byte 0: 0x00;
+// 0x001       : memory check byte 1: 0xFF;
+// 0x002       : memory check byte 2: 0x55;
+// 0x003       : memory check byte 3: 0xAA;
+// 0x004-0x006 : event address
+// 0x007       : LCD brightness
+// 0x008       : LCD contrast
+// 0x00B-0x114 : filter wheel setting
 
 
 void initNVRAM(void)
 {
-  // Initialize SPI on pin 4, with frequency of 16.8 MHz (84 MHz / 5)
-  initSPI(4, 5);
+  // Initialize SPI on pin 52, with frequency of 16.8 MHz (84 MHz / 5)
+  initSPI(__NVRAM, 5);
 
   // Read first four bytes of the NVRAM. They should contain:
   // address  value BIN    value HEX
@@ -97,20 +98,22 @@ void initNVRAM(void)
   //  0x02    0b01010101     0x55
   //  0x03    0b10101010     0xAA
   // If they don't it means that the memory has lost power,
-  // indicated by error 0b100 
-  retrieveConstant(0x00, 0x04);
+  // indicated by error 0b100
+  retrieveNVdata(0x00, 0x00, 0x00, 0x04);
+  
   if ((NVbuffer[0] != 0x00) || (NVbuffer[1] != 0xFF) ||
       (NVbuffer[2] != 0x55) || (NVbuffer[3] != 0xAA))
   {
     // If the NVRAM does not have the first four bytes correct
     // suspect a power down and a failure
-    err |= B100;
+    err |= 0b00000100;
+    ev2 |= 0b01000000;
     // Set the first four bytes to the correct value for next time
     NVbuffer[0] = 0x00;
     NVbuffer[1] = 0xFF;
     NVbuffer[2] = 0x55;
     NVbuffer[3] = 0xAA;
-    storeConstant(0x00, 0x04);
+    storeNVdata(0x00, 0x00, 0x00, 0x04);
     // Store event
     //callEvent();
   }
@@ -123,23 +126,23 @@ void initNVRAM(void)
   displayError();
 
   // Scan the NVRAM to find the last stored event in the log
-  // start from address 0x100, and increment by 0x18.
+  // start from address 0x200, and increment by 0x18.
   // Each time read two bytes, combine them into a word
   // Check that the word has increased by one fromt he last one
   // If it did not increase by one, you know that the end of
   // the log has been reached
   // If there is NVRAM error, there is no point of testing the memory
-  // Start with Event 0 and Eaddr 0x100
+  // Start with Event 0 and Eaddr 0x200
   if ((err >> 2) & 0x01)
   {
     // Event counter
     Ecount = 0;
     // Event address
-    Eaddr = 0x100;
+    Eaddr = 0x200;
   }
   else
   {
-    uint32_t address = 0x100;
+    uint32_t address = 0x200;
     uint16_t eventNrLast;
     uint16_t eventNr;
     boolean OK = true;
@@ -148,7 +151,7 @@ void initNVRAM(void)
     //Serial.println(Eaddr);
     //Serial.print("Event: ");
     //Serial.println(eventNr);
-    while (OK | (address > 0x1FFE9)) // (0x20000-0x17)
+    while (OK | (address > 0x1FFFF)) // (0x20000-0x17)
     {
       address += 0x18;
       eventNrLast = eventNr;
@@ -160,16 +163,16 @@ void initNVRAM(void)
         OK = false;
       }
     }
-    //Serial.print("Eaddr: ");
-    //Serial.println(address);
-    //Serial.print("Event: ");
-    //Serial.println(eventNrLast + 1);
 
     // Event counter
     Ecount = eventNrLast + 1;
     // Event address
     Eaddr = address;
+
+    // Check how full the RAM is
+    loadLCDdata(79, RAMfill[Eaddr / oneNinth]);
   }
+
 }
 
 /* void testNVRAM(void)
@@ -211,7 +214,7 @@ void initNVRAM(void)
 }*/
 
 
-// This function is called each time a loggable event is recorder
+// This function is called each time a loggable event is recorded
 void callEvent(void)
 {
   // Make sure the event address does not overflow the 
@@ -245,39 +248,40 @@ void callEvent(void)
   Evector[11] = (byte) (curtime & 0xFF);
 
   // Write instruction
-  SPI.transfer(4, writeInstr, SPI_CONTINUE);
+  SPI.transfer(__NVRAM, writeInstr, SPI_CONTINUE);
   // Pass on address
-  SPI.transfer(4, (byte) ((Eaddr >> 16) & 0xFF), SPI_CONTINUE);
-  SPI.transfer(4, (byte) ((Eaddr >> 8) & 0xFF), SPI_CONTINUE);
-  SPI.transfer(4, (byte) (Eaddr & 0xFF), SPI_CONTINUE);
+  SPI.transfer(__NVRAM, (byte) ((Eaddr >> 16) & 0xFF), SPI_CONTINUE);
+  SPI.transfer(__NVRAM, (byte) ((Eaddr >> 8) & 0xFF), SPI_CONTINUE);
+  SPI.transfer(__NVRAM, (byte) (Eaddr & 0xFF), SPI_CONTINUE);
   for (i = 0; i < 23; i++)
   {
-    SPI.transfer(4, Evector[i], SPI_CONTINUE);
+    SPI.transfer(__NVRAM, Evector[i], SPI_CONTINUE);
   }
-  SPI.transfer(4, Evector[23]);
+  SPI.transfer(__NVRAM, Evector[23]);
   Eaddr = Eaddr + 0x18;    // Increment by 24 (DEC) or 0x18 (HEX)
   Ecount = Ecount + 1;
 }
+
 
 // This function is called to store a constant into the memory
 // addr, is the address at which the writing should start
 // nrBytes, how many bytes need to be written minus ONE
 // data from a byte array called "NVbuffer" are transferred
-void storeConstant(byte address, byte nrBytes)
+void storeNVdata(byte add1, byte add2, byte add3, byte nrBytes)
 {
   // Write instruction
-  SPI.transfer(4, writeInstr, SPI_CONTINUE);
+  SPI.transfer(__NVRAM, writeInstr, SPI_CONTINUE);
   // Pass on address
-  SPI.transfer(4, 0x00, SPI_CONTINUE);
-  SPI.transfer(4, 0x00, SPI_CONTINUE);
-  SPI.transfer(4, address, SPI_CONTINUE);
+  SPI.transfer(__NVRAM, add1, SPI_CONTINUE);
+  SPI.transfer(__NVRAM, add2, SPI_CONTINUE);
+  SPI.transfer(__NVRAM, add3, SPI_CONTINUE);
   // Pass on the data byte-by-byte, don't transfer the last byte
   for (i = 0; i < nrBytes; i++)
   {
-    SPI.transfer(4, NVbuffer[i], SPI_CONTINUE);
+    SPI.transfer(__NVRAM, NVbuffer[i], SPI_CONTINUE);
   }
   // Pass on the last data byte and terminate the transfer
-  SPI.transfer(4, NVbuffer[nrBytes]);
+  SPI.transfer(__NVRAM, NVbuffer[nrBytes]);
 }
 
 
@@ -285,21 +289,21 @@ void storeConstant(byte address, byte nrBytes)
 // addr, is the address at which the reading should start
 // nrBytes, how many bytes need to be read minus ONE
 // data from the memory are stored into  byte array called "NVbuffer"
-void retrieveConstant(byte address, byte nrBytes)
+void retrieveNVdata(byte add1, byte add2, byte add3, byte nrBytes)
 {
   // Write instruction
-  SPI.transfer(4, readInstr, SPI_CONTINUE);
+  SPI.transfer(__NVRAM, readInstr, SPI_CONTINUE);
   // Pass on address
-  SPI.transfer(4, 0x00, SPI_CONTINUE);
-  SPI.transfer(4, 0x00, SPI_CONTINUE);
-  SPI.transfer(4, address, SPI_CONTINUE);
+  SPI.transfer(__NVRAM, add1, SPI_CONTINUE);
+  SPI.transfer(__NVRAM, add2, SPI_CONTINUE);
+  SPI.transfer(__NVRAM, add3, SPI_CONTINUE);
   // Pass on the data byte-by-byte, don't transfer the last byte
   for (i = 0; i < nrBytes; i++)
   {
-    NVbuffer[i] = SPI.transfer(4, 0x00, SPI_CONTINUE);
+    NVbuffer[i] = SPI.transfer(__NVRAM, 0x00, SPI_CONTINUE);
   }
   // Pass on the last data byte and terminate the transfer
-  NVbuffer[nrBytes] = SPI.transfer(4, 0x00);
+  NVbuffer[nrBytes] = SPI.transfer(__NVRAM, 0x00);
 }
 
 
@@ -310,13 +314,13 @@ void retrieveConstant(byte address, byte nrBytes)
 uint16_t retrieveEventNr(unsigned long address)
 {
   // Write instruction
-  SPI.transfer(4, readInstr, SPI_CONTINUE);
+  SPI.transfer(__NVRAM, readInstr, SPI_CONTINUE);
   // Pass on address
-  SPI.transfer(4, (byte) ((address >> 16) & 0xFF), SPI_CONTINUE);
-  SPI.transfer(4, (byte) ((address >> 8) & 0xFF), SPI_CONTINUE);
-  SPI.transfer(4, (address & 0xFF), SPI_CONTINUE);
+  SPI.transfer(__NVRAM, (byte) ((address >> 16) & 0xFF), SPI_CONTINUE);
+  SPI.transfer(__NVRAM, (byte) ((address >> 8) & 0xFF), SPI_CONTINUE);
+  SPI.transfer(__NVRAM, (address & 0xFF), SPI_CONTINUE);
   // Read two bytes
   uint16_t eventNr;
-  eventNr = word(SPI.transfer(4, 0x00, SPI_CONTINUE), SPI.transfer(4, 0x00));
+  eventNr = word(SPI.transfer(__NVRAM, 0x00, SPI_CONTINUE), SPI.transfer(__NVRAM, 0x00));
   return eventNr;
 }

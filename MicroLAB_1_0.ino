@@ -42,6 +42,25 @@
 #define ev1 Evector[12]
 // Event 2 vector as the 14th byte of the Event vector
 #define ev2 Evector[13]
+// Servo 1&2 position
+#define fw12 Evector[16]
+// Servo 3&4 position
+#define fw34 Evector[17]
+// ON/OFF vector as the 19th byte of the Event vector
+#define onoff Evector[18]
+// Fluika pump pressure MSB
+#define fp1 Evector[19]
+// Fluika pump pressure LSB
+#define fp2 Evector[20]
+
+// Dividing factor for one ninth of the RAM full
+#define oneNinth 0x38E4
+
+// I2C address
+//    Make sure this address is unique on the I2C bus and identical in the stirrer
+#define SlaveDeviceId 9
+// Number of bytes in I2C transfer to stirrer
+#define lengthI2Cbuf 14
 
 // Direct port manipulation for fast communication with the LCD daughter board
 //                    ........|...AA..|.....CDDDDDDDD. 
@@ -66,6 +85,7 @@
 #define __BUZZER      12    // Buzzer
 #define __SW_SENSE    A7    // Power switch sense (active low) Should be normally pin 43
 #define __PWR_DOWN    42    // Power down system (active high)
+#define __NVRAM       52    // SPI chip select pin for NVRAM
 
 // Define pin functions
 #define __LEDon       PIOB->PIO_SODR=1<<27
@@ -99,31 +119,38 @@ RTC_clock rtc_clock(XTAL);
 
 
 // Identifier for MicroFLiC
-char ID[] = "MicroFLiC v1.1 ArduinoDUE (Jan 16, 2015)";
+char ID[] = "MicroLAB v1.0 ArduinoDUE (Nov 20, 2016)";
 
 // Old error vector
 byte olderr;
 byte t;
 
+
+
 /* Variables for NVRAM */
 // Event counter
 unsigned long Ecount = 0;
 // Event address
-unsigned long Eaddr = 0x100;
+unsigned long Eaddr = 0x200;
 // Event vector
 byte Evector[24];
+// NVRAM transfer buffer
+byte NVbuffer[256];
+// Memory fillup character
+byte RAMfill[] = {0x4D, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0xFF};
 
 // LCD lines data storage
 byte LCDdata[256];
 byte LCDposition[256];
+boolean LCDcharpos;   // false: send character; true: send position
 byte LCDindexW;
 byte LCDindexR;
 
 unsigned long LCDdataBuffer;
 unsigned long LCDoldBuffer;
 
-// NVRAM transfer buffer
-byte NVbuffer[8];
+uint16_t loopCycle;
+
 
 // counting index
 int i;
@@ -163,6 +190,8 @@ const byte readInstr = 0x03;
 // lookup table for HEX numbers
 const byte HEXASCII[16] = {48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 65, 66, 67, 68, 59, 70};
 
+String inString = "";    // string to hold input
+
 void setup()
 {
   // Initialize the IO pins
@@ -187,6 +216,7 @@ void setup()
   //pinMode(2, OUTPUT);
   //digitalWrite(13, LOW);
   // Initialize non-volatile RAM
+  Serial.println("NVRAM:");
   initNVRAM();
   delay(100);
   //testNVRAM();
@@ -198,6 +228,25 @@ void setup()
   ev2 = ev2 | B10000000;
   callEvent();
   ev2 = ev2 & B01111111;
+  // send an intro:
+  
+  // sendLCDcommand(56 | 0b10000000, LCDchar);
+  //Serial.println("\n\nString toInt():");
+  //Serial.println();
+  // sendLCDcommand(30, LCDchar);
+  loadLCDdata(20, HEXASCII[6]);
+  loadLCDdata(21, HEXASCII[7]);
+  loadLCDdata(22, HEXASCII[8]);
+  /*loadLCDdata(33, HEXASCII[1]);
+  loadLCDdata(33, HEXASCII[2]);
+  loadLCDdata(33, HEXASCII[3]);
+  loadLCDdata(33, HEXASCII[4]);
+  loadLCDdata(33, HEXASCII[5]);
+  loadLCDdata(33, HEXASCII[6]);
+  loadLCDdata(33, HEXASCII[7]);
+  loadLCDdata(33, HEXASCII[8]);
+  loadLCDdata(33, HEXASCII[9]);
+  loadLCDdata(33, HEXASCII[9]);*/
 }
 
 
@@ -214,7 +263,35 @@ void initPins()
 }
 
 
-void loop() {
+void loop()
+{
+  // Read serial input:
+//  while (Serial.available() > 0) {
+//    int inChar = Serial.read();
+//    if (isDigit(inChar)) {
+//      // convert the incoming byte to a char
+//      // and add it to the string:
+//      inString += (char)inChar;
+//    }
+//    // if you get a newline, print the string,
+//    // then the string's value:
+//    if (inChar == 'b')
+//    {
+//      LCDbrightness((byte) inString.toInt());
+//      Serial.print("Brightness: ");
+//      Serial.println(inString);
+//      // clear the string for new input:
+//      inString = "";
+//    }
+//    if (inChar == 'c')
+//    {
+//      LCDcontrast((byte) inString.toInt());
+//      Serial.print("Contrast: ");
+//      Serial.println(inString);
+//      // clear the string for new input:
+//      inString = "";
+//    }
+//  }
   //Serial.print("Error? ");
   //Serial.println(err, BIN);
   //Serial.print("Is OK? ");
@@ -228,7 +305,7 @@ void loop() {
 //  Serial.println(now.second(), DEC);
 //  delay(1000);
   //printTime();
-  //rs232loop();
+  rs232loop();
   //testNVRAM();
   //digitalWrite(13, digitalRead(13)?LOW:HIGH);
   //t++;
@@ -252,7 +329,15 @@ void loop() {
 //  Serial.print(rtc_clock.get_months());
 //  Serial.print(".");
 //  Serial.println(rtc_clock.get_years());
-  delay(100);
+
+  // Send LCD character about every 12 ms
+  loopCycle++;
+  if (!(loopCycle % 0x1000))
+  {
+    transferLCDdata();
+  }
+  
+  //transferLCDdata();
   // If power button is pressed, check if power needs to be turned off
   if (powerButton)
   {

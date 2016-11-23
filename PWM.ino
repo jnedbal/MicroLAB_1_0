@@ -3,7 +3,7 @@
 // hoewever was incompatible with the contrast and brightness control as it made
 // the display flicker. For this reason the servo control has been performed by the
 // Arduino directly.
-
+/*
 #define backlightNum        9   // PWM channel for LCD brightness
 #define contrastNum         0   // PWM channel for LCD contrast
 #define defaultBacklight 1000   // Default value for LCD brightness
@@ -79,5 +79,5 @@ void setLCDbrightness(uint16_t brightness)
   //Serial.print("NV buffer updated from memory");
   //Serial.println(word(NVbuffer[0], NVbuffer[1]));
 }
-
+*/
 

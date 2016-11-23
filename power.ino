@@ -1,10 +1,10 @@
-/* This file takes care of power down
+/* power.ino takes care of power down
  *  Switch     on pin 43    (input, active low)
  *  Power down on pin 42    (output, active high)
  */
 
  
-// Function to initialize the buzzer
+// Function to initialize the power operation pins and interrupts.
 //
 void initPower(void)
 {
@@ -12,7 +12,7 @@ void initPower(void)
   digitalWrite(__PWR_DOWN, LOW);
   pinMode(__PWR_DOWN, OUTPUT);
   attachInterrupt(digitalPinToInterrupt(__SW_SENSE), switchISR, CHANGE);
-  Serial.println("Initializing switch");
+  //Serial.println("Initializing switch");
 }
 
 void switchISR(void)
@@ -40,7 +40,7 @@ void powerDown(void)
     beep(2000, 100);
     // Wait 150 ms
     delay(150);
-    Beep at 1kHz for 100 ms
+    // Beep at 1kHz for 100 ms
     beep(1000, 100);
     // Set the power button FALSE, as if it is not held anymore
     powerButton = false;

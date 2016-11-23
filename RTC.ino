@@ -1,9 +1,25 @@
+/* RTC.ino file controls the real time clock.
+ *  The real time clock is shared between the Arduino DUE and
+ *  the Arduino Micro on the LCD shield. Normally, the Arduino Micro
+ *  communicates with the RTC, but at the starts, the internal RTC is
+ *  synchronized to the battery-backed up RTC chip and also the Arduino
+ *  DUE synchronizes the RTC with the computer.
+ */
+
+
 // Function to initialize the RTC
+// The function takes control of the I2C bus, that is normally available
+// to the Arduino Micro on the LCD shield. It then keeps reading the time
+// from the RTC, until it changes. At that moment, the internal RTC is 
+// synchronized to the battery-backed up RTC at a minimum latency. Once
+// the internal RTC is synchronized, the I2C bus is returned to the
+// Arduino Micro.
 void initRTC(void)
-{ 
+{
+  // Gain control over the I2C bus
   startI2C();
 
-  // Give the but a millisecond to clear out any existing transmission
+  // Give the bus a millisecond to clear out any existing transmission
   delay(1);
 
   // Initialize the RTC
@@ -35,6 +51,8 @@ void initRTC(void)
 
   // Make sure external RTC is not giving errors
   RTCerrorCheck();
+
+  // Return the I2C bus to the LCD shield
   stopI2C();
 }
 
@@ -103,6 +121,9 @@ void initRTC(void)
 //}
 
 
+// Function reads out the error status of the external RTC chip.
+// If the RTC has experienced error, such as backup power failure,
+// the error is reported.
 void RTCerrorCheck(void)
 {
   if (! rtc.isrunning())

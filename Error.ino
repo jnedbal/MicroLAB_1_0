@@ -20,22 +20,10 @@
 void initError(void)
 {
   err = 0x00;
-  createErrorChar();
+  //createErrorChar();
 }
 
-void createErrorChar(void)
-{
-  // create an inverse E symbol
-  // #####  0x1F
-  // #   #  0x11
-  // # ###  0x17
-  // #  ##  0x13
-  // # ###  0x17
-  // #   #  0x11
-  // #####  0x1F
-   uint8_t errorChar[8] = {0x1F, 0x11, 0x17, 0x13, 0x17, 0x11, 0x1F};
-//   lcd.createChar(0, errorChar);
-}
+
 
 void displayError(void)
 {
@@ -45,14 +33,10 @@ void displayError(void)
     loadLCDdata(17, byte(0));
     loadLCDdata(18, HEXASCII[(err >> 4) & B1111]);
     loadLCDdata(19, HEXASCII[err & B1111]);
-//    lcd.setCursor(17, 0);
-//    lcd.write(byte(0));
-//    lcd.print(err, HEX);
   }
   else
   {
-//    lcd.setCursor(17, 0);
-//    lcd.print("   ");
+    // If no error is recorded, clear the last three characters of the first line
     loadLCDdata(17, byte(32));
     loadLCDdata(18, byte(32));
     loadLCDdata(19, byte(32));

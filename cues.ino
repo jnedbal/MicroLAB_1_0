@@ -1,4 +1,4 @@
-/* This file controls the visual and sound cues. These consist of:
+/* cues.ino controls the visual and sound cues. These consist of:
  *  LED    on pin 13
  *  Buzzer on pin 12
  */
