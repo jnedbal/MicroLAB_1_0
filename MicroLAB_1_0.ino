@@ -53,8 +53,17 @@
 // Fluika pump pressure LSB
 #define fp2 Evector[20]
 
-// Dividing factor for one ninth of the RAM full
+// Dividing factor for one ninth of the NVRAM full
 #define oneNinth 0x38E4
+// LCD brightness/contrast setting NVRAM address
+#define brightnessContrastAddress 0x07
+// The pump ID and pressure address
+#define pumpAddress 0x0B
+// The filter wheel setting start address
+#define servoSetAddress 0x80
+// The filter wheel pre-programmed position start address
+#define servoLUTaddress 0x9A
+
 
 // I2C address
 //    Make sure this address is unique on the I2C bus and identical in the stirrer
@@ -92,7 +101,6 @@
 #define __LEDoff      PIOB->PIO_CODR=1<<27
 #define __BUZZERon    PIOD->PIO_SODR=1<<8
 #define __BUZZERoff   PIOD->PIO_CODR=1<<8
-
 
 // Wait one instruction
 #define NOP __asm__ __volatile__ ("nop\n\t")

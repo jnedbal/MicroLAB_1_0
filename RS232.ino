@@ -196,7 +196,8 @@ void getID(void)
 // is transferred into the computer
 void getLCDcontrastBrightness(void)
 {
-  retrieveNVdata(0x00, 0x00, 0x07, 0x02);
+  // Retrieve the data from the NVRAM at address 0x07
+  retrieveNVdata(0x00, 0x00, brightnessContrastAddress, 0x02);
 
   // Return checksum
   checkSum();
@@ -216,8 +217,8 @@ void setLCDcontrastBrightness(void)
   {
     NVbuffer[i] = serialbuffer[i + 2];
   }
-  // Save four bytes into address 0x07 in the NVRAM
-  storeNVdata(0x00, 0x00, 0x07, 0x02);
+  // Store four bytes into address 0x07 in the NVRAM
+  storeNVdata(0x00, 0x00, brightnessContrastAddress, 0x02);
   // Set the brightness
   LCDbrightness(NVbuffer[0]);
   // Set the contrast
@@ -275,4 +276,298 @@ void packetSend(void)
   Sin = 0;
   serlen = 0;
   SerialUSB.write(NVbuffer, serialbuffer[4]);
+}
+
+
+// Function returning information about the selected filter.
+// The filter positions are stored in a byte array, where each
+// byte represents the chosen filter in each filter wheel.
+// The software supports up to 10 filters per wheel. The filter
+// selected in each filter wheel is returned to the computer.
+void filterGet(void)
+{
+  // Return checksum and reset serial transfer
+  checkSum();
+  Sin = 0;
+  serlen = 0;
+  // Create a 4 byte array to hold the active filter positions
+  byte sendBuffer[4];
+  for (i = 0; i < servoCount; i++)
+  {
+    sendBuffer[servoActive[i]] = filterActive[i];
+  }
+  // Send to the PC
+  SerialUSB.write(sendBuffer, 4);
+}
+
+// Function to move a particular filter wheel into a specified filter position
+// The data sent by the computer consists of two bytes, the first byte specifies
+// which of the four filter wheels is being addressed and the second byte
+// specifies which of the ten possible positions to move the filter wheel into.
+// The filter positions are stored in an array of uint16_t. The numbers stored
+// within this array determine the PWM duty cycle driving the servos.
+// The selected filter name is printed on the alphanumeric display.
+// If the current filter position is not known for any of the filter wheels
+// display error 8 on the screen.
+// Store the selected filter combination into the NVRAM.
+
+void filterSet(void)
+{
+  // serialbuffer[2]:  which wheel is used
+  // serialbuffer[3]:  which position to go to
+  // Move the filter wheel to the position addressed by the PC.
+  // servoAddress[]     : array holding the Arduino DUE pin number tied to eacd servo driving the filter wheel
+  // filterPosition[][] : PWM setting driving a given filter wheel to the specified position
+  moveServo(servoAddress[serialbuffer[2]], filterPosition[serialbuffer[2]][serialbuffer[3] - 1]);
+  // Print the name of the selected filter on the alphanumeric display.
+  // Each filter position can be assigned up to three characters that are loaded onto the LCD.
+  // filterNameMaxChar[] : specifies how many characters long are the names of given filter wheel
+  // filterName[][][]    : string array specifying the filter wheel, filter position name characters
+  for (i = 0; i < filterNameMaxChar[serialbuffer[2]]; i++)
+  {
+    // Print characters on LCD
+    loadLCDdata(filterNameLCD[serialbuffer[2]] + i, filterName[serialbuffer[2]][serialbuffer[3] - 1][i]);
+  }
+  // Set the active filter position to the filter addressed by the computer.
+  filterActive[serialbuffer[2]] = serialbuffer[3];
+
+  // Store the existing error status
+  byte err_old = err;
+  // Assume there is no error in setting the filter wheel positions
+  err &= 0b11110111;
+  // Check if any of the filter wheel positions are set to zero, which indicates a problem
+  for (i = 0; i < servoCount; i++)
+  {
+    if (filterActive[i] == 0)
+    {
+      // Set the filter wheel loading error
+      err |= 0b00001000;
+      // Set the error event
+      ev2 |= 0b01000000;
+    }
+  }
+  // If there is an error, display the error
+  if (err != err_old)
+  { 
+    displayError();
+  }
+
+  // Update the log
+  // Filter wheel position are stored as two bytes.
+  // First byte fw12 holds first and second filter wheel positions in 4 LSb and 4 MSb, respectively
+  // Second byte fw34 holds third and fourth filter wheel positions in 4 LSb and 4 MSb, respectively
+  if (serialbuffer[2] < 2)
+  {
+    fw12 = (filterActive[0] | (filterActive[1] << 4));
+  }
+  else
+  {
+    fw34 = (filterActive[2] | (filterActive[3] << 4));
+  }
+  // Store the status into the NVRAM
+  callEvent();
+  
+  // Display the buffer onto the LCD
+  //updateLCD();
+
+  // Return checksum and reset serial transfer
+  checkSum();
+  Sin = 0;
+  serlen = 0;
+}
+
+
+// Function to update the filter look-up-table
+void filterUpdate(void)
+{
+  servoSetting();
+  // Update filter look up table
+  ev1 = ((ev1 & 0b11110000) | NVbuffer[8]);
+  // Return checksum and reset serial transfer
+  checkSum();
+  Sin = 0;
+  serlen = 0;
+}
+
+
+// Function to set a filter in a filter wheel into an arbitrary position.
+// The filter is set in three bytes.
+// The first bytes determines which filter wheel is being addressed.
+// The second and third byte specify the position which the filter wheel is meant to move into.
+// Because the filter position set is arbitrary, remove selected filter from the LCD, 
+void filterGoto(void)
+{
+  // serialbuffer[2]:    which wheel is used
+  // serialbuffer[3-4]:  which position to go to, consists of a 16bit number between 700 and 2300
+  // Go to the position sent by the computer
+  moveServo(servoAddress[serialbuffer[2]], word(serialbuffer[3], serialbuffer[4]));
+  
+  // Switch on the servo only temporarily to prevent jumping of the servo
+  //if (!servos[serialbuffer[2]].attached())
+  {
+    //servos[serialbuffer[2]].attach(servoAddress[serialbuffer[2]]);
+  }
+  //servos[serialbuffer[2]].writeMicroseconds(word(serialbuffer[3], serialbuffer[4]));
+
+  // Delete filter position name from the LCD
+  for (i = 0; i < filterNameMaxChar[serialbuffer[2]]; i++)
+  {
+    // Print space characters on LCD instead of the filter name
+    loadLCDdata(filterNameLCD[serialbuffer[2]] + i, 32);
+  }
+
+  // Set the active filter position to zero (unknown position)
+  filterActive[serialbuffer[2]] = 0;
+
+  // Set error on the display as we are moving to arbitrary position
+  err |= 0b00001000;
+  ev2 |= 0b01000000;
+
+  displayError();
+
+  // Update the log
+  // Filter wheel position are stored as two bytes.
+  // First byte fw12 holds first and second filter wheel positions in 4 LSb and 4 MSb, respectively
+  // Second byte fw34 holds third and fourth filter wheel positions in 4 LSb and 4 MSb, respectively
+  if (serialbuffer[2] < 2)
+  {
+    fw12 = (filterActive[0] | (filterActive[1] << 4));
+  }
+  else
+  {
+    fw34 = (filterActive[2] | (filterActive[3] << 4));
+  }
+  // Store the status into the NVRAM
+  callEvent();
+
+  //delay(1000);
+  //servos[serialbuffer[2]].detach();
+  // Return checksum and reset serial transfer
+  checkSum();
+  Sin = 0;
+  serlen = 0;
+}
+
+// Function to read the current event count stored in the NVRAM
+// Ecount is a 16-bit integer that ranges up to 5449, before the
+// NVRAM overflows.
+void EcountGet(void)
+{
+  // Return checksum and reset serial transfer
+  checkSum();
+  Sin = 0;
+  serlen = 0;
+  // Send to the PC. First send the MSB then the LSB
+  SerialUSB.write((byte) (Ecount >> 8) & 0xFF);
+  SerialUSB.write((byte) Ecount & 0xFF);
+}
+
+// Function to transfer all NVRAM content to the computer, up to the last event.
+void transferEvents(void)
+{
+  // Return checksum and reset serial transfer
+  checkSum();
+  Sin = 0;
+  serlen = 0;
+  // Do the bulk transfer
+  // Read instruction
+  SPI.transfer(__NVRAM, readInstr, SPI_CONTINUE);
+  // Pass on address, which is 0x000000 in this case
+  SPI.transfer(__NVRAM, 0x00, SPI_CONTINUE);
+  SPI.transfer(__NVRAM, 0x00, SPI_CONTINUE);
+  SPI.transfer(__NVRAM, 0x00, SPI_CONTINUE);
+  // Pass on the data byte-by-byte, don't transfer the last byte
+  for (i = 0x01; i < Eaddr; i++)
+  {
+    SerialUSB.write(SPI.transfer(__NVRAM, 0x00, SPI_CONTINUE));
+  }
+  // Transfer the last byte and finish the burst read from the NVRAM
+  SerialUSB.write(SPI.transfer(__NVRAM, 0x00));
+}
+
+// Function to clear the entire event space of the NVRAM.
+// The event counter and event address is set to the beginning of the NVRAM event space
+// The event space of the NVRAM is set fo 0x00 throughout.
+void wipeEvents(void)
+{
+  // Reset the Ecount index and the event memory
+  // Event counter
+  Ecount = 0;
+  // Event address
+  Eaddr = 0x200;
+  // Write zeros to the whole of the Event space of the memory
+  // Write instruction
+  SPI.transfer(__NVRAM, writeInstr, SPI_CONTINUE);
+  // Pass on address
+  SPI.transfer(__NVRAM, 0x00, SPI_CONTINUE);
+  SPI.transfer(__NVRAM, 0x02, SPI_CONTINUE);
+  SPI.transfer(__NVRAM, 0x00, SPI_CONTINUE);
+  // Sent zeros to each byte of the memory event space
+  for (i = 0x200; i < 0x1FFFF; i++)
+  {
+    SPI.transfer(__NVRAM, 0x00, SPI_CONTINUE);
+  }
+  SPI.transfer(__NVRAM, 0x00);
+  // Call an event to get something into the memory
+  callEvent();
+  // Return checksum and reset serial transfer
+  checkSum();
+  Sin = 0;
+  serlen = 0;
+}
+
+// Function to store the pump Device name and serial number into the NVRAM
+void pumpID(void)
+{
+  // Transfer the 7 bytes of pump ID into NVbuffer
+  for (i = 0; i < 7; i++)
+  {
+    NVbuffer[i] = serialbuffer[i + 2];
+  }
+  // Store the pump ID into the NVRAM
+  // Pump ID if 7-bytes long
+  storeConstant(0x00, 0x00, pumpAddress, 0x07);
+  // Create a pump event
+  ev2 |= 0b00000100;
+  callEvent();
+  // Display 'p=' on the screen
+  loadLCDdata(40, 112);
+  loadLCDdata(41, 61);
+  // Display '000' on the screen
+  loadLCDdata(42, 48);
+  loadLCDdata(43, 48);
+  loadLCDdata(44, 48);
+  // Display 'mb' on the screen
+  loadLCDdata(45, 109);
+  loadLCDdata(46, 98);
+
+  // Return checksum and reset serial transfer
+  checkSum();
+  Sin = 0;
+  serlen = 0;
+}
+
+
+// Function to store the pump pressure into the NVRAM
+// The pump pressure is a 16-bit integer sent in two bytes.
+void pumpPressure(void)
+{
+  // Create a pump pressure event
+  ev2 |= 0b00000100;
+  // Store the pump pressure into the NVRAM
+  fp1 = serialbuffer[2];
+  fp2 = serialbuffer[3];
+  callEvent();
+  // Combine the two bytes into a 16-bit integer
+  uint16_t intNumber = word(serialbuffer[2], serialbuffer[3]);
+  // Print the pump pressure converted into BCD digit by digit
+  for (i = 0; i < 3; i++)
+  {
+    loadLCDdata(44 - i, HEXASCII[intNumber % 10]);
+    intNumber /= 10;
+  }
+  // Return checksum and reset serial transfer
+  checkSum();
+  Sin = 0;
+  serlen = 0;
 }
