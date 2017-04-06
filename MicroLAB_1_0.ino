@@ -10,7 +10,7 @@
  * This code tests the LCD display connected to the microlabduino.
  * It requires the shield to be installed, The LCD shield with 
  * Arduino/Genuino Micro and LCD installed and 12 V power attached.
- * The communication is done via a par<zallel 8-bit port, two address
+ * The communication is done via a parallel 8-bit port, two address
  * bits and a chip select signal. It consists of one way
  * communication from the Arduino DUE to Arduino/Genuino Micro.
  * 
@@ -36,6 +36,7 @@
 /************************/
 
 
+/* Error and Event handling directives */
 // Error vector as the 16th byte of the Event vector
 #define err Evector[15]
 // Event 1 vector as the 13th byte of the Event vector
@@ -53,6 +54,8 @@
 // Fluika pump pressure LSB
 #define fp2 Evector[20]
 
+
+/* NVRAM address directives */
 // Dividing factor for one ninth of the NVRAM full
 #define oneNinth 0x38E4
 // LCD brightness/contrast setting NVRAM address
@@ -65,20 +68,21 @@
 #define servoLUTaddress 0x9A
 
 
-// I2C address
+/* I2C transmission directives */
 //    Make sure this address is unique on the I2C bus and identical in the stirrer
 #define SlaveDeviceId 9
 // Number of bytes in I2C transfer to stirrer
 #define lengthI2Cbuf 14
 
-// Direct port manipulation for fast communication with the LCD daughter board
+/* Direct port manipulation for fast communication with the LCD daughter board */
 //                    ........|...AA..|.....CDDDDDDDD. 
 #define LCDchar     0b00000000000001000000000000000000
 #define LCDcontrol  0b00000000000000000000000000000000
 #define LCDCS       0b00000000000000000000001000000000
 #define LCDclear    0b00000000000011000000000111111110
 
-// Definitions for LCD daughter board communication
+
+/* LCD daughter board communication directives */
 #define resetLCD      1
 #define startI2Ccomm  2
 #define stopI2Ccomm   3
@@ -88,7 +92,8 @@
 #define contrastMSB   14
 #define contrastLSB   15
 
-// Define Arduino DUE pins
+
+/* Arduino DUE pins directives */
 #define __I2C_EN      22    // I2C bus voltage translator
 #define __LED         13    // LED
 #define __BUZZER      12    // Buzzer
@@ -96,13 +101,15 @@
 #define __PWR_DOWN    42    // Power down system (active high)
 #define __NVRAM       52    // SPI chip select pin for NVRAM
 
-// Define pin functions
+
+/* Pin function directives */
 #define __LEDon       PIOB->PIO_SODR=1<<27
 #define __LEDoff      PIOB->PIO_CODR=1<<27
 #define __BUZZERon    PIOD->PIO_SODR=1<<8
 #define __BUZZERoff   PIOD->PIO_CODR=1<<8
 
-// Wait one instruction
+
+/* Wait one instruction */
 #define NOP __asm__ __volatile__ ("nop\n\t")
 
 
@@ -126,12 +133,17 @@ RTC_clock rtc_clock(XTAL);
 /********************/
 
 
-// Identifier for MicroFLiC
+/* Identifier for MicroFLiC */
 char ID[] = "MicroLAB v1.0 ArduinoDUE (Nov 20, 2016)";
 
+/* Counting indices */
+int i;
+uint16_t loopCycle;
+
+
 // Old error vector
-byte olderr;
-byte t;
+//byte olderr;
+//byte t;
 
 
 
@@ -147,7 +159,7 @@ byte NVbuffer[256];
 // Memory fillup character
 byte RAMfill[] = {0x4D, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0xFF};
 
-// LCD lines data storage
+/* LCD lines data storage */
 byte LCDdata[256];
 byte LCDposition[256];
 boolean LCDcharpos;   // false: send character; true: send position
@@ -157,36 +169,50 @@ byte LCDindexR;
 unsigned long LCDdataBuffer;
 unsigned long LCDoldBuffer;
 
-uint16_t loopCycle;
 
 
-// counting index
-int i;
 
-boolean ledOn = true;
 
-// 34 byte long buffer storing serial data
+
+// boolean ledOn = true;
+
+/* Serial data transfer variables */
+// 102 byte long buffer storing serial data
 byte serialbuffer[102];
 // Serial FIFO index
 byte Sin = 0;
-// Serial transfer length (up to 32 bytes) plus 2.
+// Serial transfer length (up to 100 bytes) plus 2.
 // For transfer of 4 bytes, serlen should be 4+2=6.
 byte serlen = 0;
+/* End of serial data transfer variables */
 
-// Variables for running the buzzer
+
+/* Variables for running the buzzer */
+// Variables keeping track of the buzzer. Buzzer is operated by Timer3.
+// It is a piezo sounder connected to pin 12 via a MOSFET
+// Is buzzer on?
 boolean buzzerOn;
+// Buzzer period counting index
 uint32_t buzzerCycle;
+// Total number of buzzer periods to play
 uint32_t buzzerCycles;
+/* End of buzzer variables */
 
-// Variables for power control
+
+/* Variables for power control */
+// Has the power button been pressed?
 boolean powerButton = false;
+// Variable recording the time the button was pressed
 uint32_t powerDownMillis;
+/* End of power control variables */
+
+
 
 /********************/
 /* Define constants */
 /********************/
 
-// Days of the week
+/* Days of the week */
 const char* daynames[]={"Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"};
 
 /* Constants for NVRAM */
@@ -198,50 +224,67 @@ const byte readInstr = 0x03;
 // lookup table for HEX numbers
 const byte HEXASCII[16] = {48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 65, 66, 67, 68, 59, 70};
 
-String inString = "";    // string to hold input
+// String inString = "";    // string to hold input
+
+
+
 
 void setup()
 {
+  /* Initialize pins */
+  // Initialize buzzer and LED pins
+  initCuesPins();
+  // Initialize I2C bus control pin
+  initI2CPins();
+  // Initialize the LCD control pins
+  initLCDpins();
+
+
   // Initialize the IO pins
-  initPins();
-  // Initialize the buzzer
+  // initPins();
+
+
+  /* Give audible cue of system start by sounding the buzzer */
+  // Sound the buzzer at 5 kHz for 100 ms
   initBuzzer();
-  // Start serial communication of programming port
+
+  /* Start communication over USB */
+  // Start serial communication on the programming port
   Serial.begin(115200);
+  // Start serial communication on the native port
   SerialUSB.begin(115200);
+
+  /* Initialize different sub modules */
   // Initialize the power switch
   initPower();
-  // Initialize the LCD
-  initLCDpins();
+
   // Initialize error. Create an error character
   initError();
 
   // Initialize I2C communication
   initI2C();
+
   // Initialize the RTCs
   initRTC();
-  //pinMode(13, OUTPUT);
-  //pinMode(2, OUTPUT);
-  //digitalWrite(13, LOW);
+
   // Initialize non-volatile RAM
-  Serial.println("NVRAM:");
+  //Serial.println("NVRAM:");
   initNVRAM();
+
+  /* Wait 100 ms before anything else happens */
   delay(100);
   //testNVRAM();
   // Initialize the PWM
   //initPWM();
   // Attach an interrupt updating the clock
   //Timer3.attachInterrupt(printTime).setFrequency(1).start();
+
+  /* Record in the event memory that the device has been restarted */
   // Call reset event
   ev2 = ev2 | B10000000;
   callEvent();
   ev2 = ev2 & B01111111;
-  // send an intro:
   
-  // sendLCDcommand(56 | 0b10000000, LCDchar);
-  //Serial.println("\n\nString toInt():");
-  //Serial.println();
-  // sendLCDcommand(30, LCDchar);
   loadLCDdata(20, HEXASCII[6]);
   loadLCDdata(21, HEXASCII[7]);
   loadLCDdata(22, HEXASCII[8]);
@@ -258,17 +301,6 @@ void setup()
 }
 
 
-// Function to initialize the pins required for communication with the LCD
-void initPins()
-{
-  initLCDpins();
-  pinMode(__LED, OUTPUT);       // LED
-  __LEDoff;                     // turn LED off
-  pinMode(__BUZZER, OUTPUT);    // buzzer
-  __BUZZERoff;                  // turn buzzer off
-  digitalWrite(__I2C_EN, HIGH); // I2C bus voltage translator disabled
-  pinMode(__I2C_EN, OUTPUT);    // I2C bus voltage translator (active LOW)
-}
 
 
 void loop()
@@ -313,7 +345,10 @@ void loop()
 //  Serial.println(now.second(), DEC);
 //  delay(1000);
   //printTime();
+
+  /* Read next available characters on the Native USB port */
   rs232loop();
+
   //testNVRAM();
   //digitalWrite(13, digitalRead(13)?LOW:HIGH);
   //t++;
@@ -338,6 +373,7 @@ void loop()
 //  Serial.print(".");
 //  Serial.println(rtc_clock.get_years());
 
+  /* Update the LCD display if needed */
   // Send LCD character about every 12 ms
   loopCycle++;
   if (!(loopCycle % 0x1000))
@@ -346,7 +382,8 @@ void loop()
   }
   
   //transferLCDdata();
-  // If power button is pressed, check if power needs to be turned off
+  /* Control the power button */
+  // Power down if power button held pressed long enough
   if (powerButton)
   {
     powerDown();

@@ -4,6 +4,27 @@
  */
 
 
+// Function to initialize the buzzer
+//
+void initBuzzer(void)
+{
+  // Use Timer3 to control the buzzer by calling the "buzzerToggle" function
+  Timer3.attachInterrupt(buzzerToggle);
+  // Beep at 5kHz for 100ms
+  beep(5000, 100);
+}
+
+
+// Function to initialize the pins required for the buzzer and LED
+void initCuesPins(void)
+{
+  pinMode(__LED, OUTPUT);       // LED
+  __LEDoff;                     // turn LED off
+  pinMode(__BUZZER, OUTPUT);    // buzzer
+  __BUZZERoff;                  // turn buzzer off
+}
+
+
 // Function to sound the buzzer
 //    frequency in Hertz (Hz)
 //    duration  in millisecond (ms)
@@ -50,13 +71,4 @@ void buzzerToggle(void)
 
 
 
-// Function to initialize the buzzer
-//
-void initBuzzer(void)
-{
-  // Use Timer3 to control the buzzer by calling the "buzzerToggle" function
-  Timer3.attachInterrupt(buzzerToggle);
-  // Beep at 5kHz for 100ms
-  beep(5000, 100);
-}
 

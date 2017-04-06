@@ -18,6 +18,16 @@ void initI2C(void)
   Wire1.begin();
 }
 
+// Initialize I2C bus voltage translator control
+void initI2CPins(void)
+{
+  // A voltage translator is used to control access to RTC clock by the Arduino DUE
+  // Normally, __I2C_EN is HIGH and the LCD shield has access to the RTC, but to set
+  // the RTC, the I2C bus is switched to the Arduino DUE by pulling __I2C_EN to LOW
+  digitalWrite(__I2C_EN, HIGH); // I2C bus voltage translator disabled
+  pinMode(__I2C_EN, OUTPUT);    // I2C bus voltage translator (active LOW)
+}
+
 // Function to take control of the I2C bus, it takes the bus away from the LCD shield
 void startI2C(void)
 {
